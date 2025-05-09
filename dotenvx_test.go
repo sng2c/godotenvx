@@ -1,4 +1,4 @@
-package main
+package godotenvx
 
 import (
 	"reflect"
@@ -9,24 +9,24 @@ func TestParseEnvLines(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    []string
-		expected EnvxMap
+		expected EnvMap
 	}{
 		{
 			name:     "empty input",
 			input:    []string{},
-			expected: EnvxMap{},
+			expected: EnvMap{},
 		},
 		{
 			name:  "single valid key-value pair",
 			input: []string{"KEY1=value1"},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Key: "KEY1", Value: "value1", Locked: false},
 			},
 		},
 		{
 			name:  "multiple valid key-value pairs",
 			input: []string{"KEY1=value1", "KEY2=value2"},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Key: "KEY1", Value: "value1", Locked: false},
 				"KEY2": {Key: "KEY2", Value: "value2", Locked: false},
 			},
@@ -34,21 +34,21 @@ func TestParseEnvLines(t *testing.T) {
 		{
 			name:  "key with locked",
 			input: []string{"# LOCK", "KEY1=value1"},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Key: "KEY1", Value: "value1", Locked: true},
 			},
 		},
 		{
 			name:  "key with inline comment",
 			input: []string{"KEY1=value1 # some comment"},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Key: "KEY1", Value: "value1 # some comment", Locked: false},
 			},
 		},
 		{
 			name:     "comment-only lines",
 			input:    []string{"# this is a comment", "  ", "# another comment"},
-			expected: EnvxMap{},
+			expected: EnvMap{},
 		},
 		{
 			name: "mixed valid lines and comments",
@@ -60,7 +60,7 @@ func TestParseEnvLines(t *testing.T) {
 				"# Comment after lock",
 				"KEY3=value3",
 			},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Key: "KEY1", Value: "value1", Locked: false},
 				"KEY2": {Key: "KEY2", Value: "value2", Locked: true},
 				"KEY3": {Key: "KEY3", Value: "value3", Locked: false},
@@ -69,12 +69,12 @@ func TestParseEnvLines(t *testing.T) {
 		{
 			name:     "invalid key-value format",
 			input:    []string{"INVALID_LINE"},
-			expected: EnvxMap{},
+			expected: EnvMap{},
 		},
 		{
 			name:  "valid and invalid lines mixed",
 			input: []string{"KEY1=value1", "INVALID_LINE", "KEY2=value2"},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Key: "KEY1", Value: "value1", Locked: false},
 				"KEY2": {Key: "KEY2", Value: "value2", Locked: false},
 			},
@@ -83,7 +83,7 @@ func TestParseEnvLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseEnvLines(tt.input)
+			result := NewEnvMapFromEnviron(tt.input)
 			if !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("parseEnvLines(%v) = %v, expected %v", tt.input, result, tt.expected)
 			}
@@ -91,70 +91,70 @@ func TestParseEnvLines(t *testing.T) {
 	}
 }
 
-// Override 함수에 대한 단위 테스트 코드
+// override 함수에 대한 단위 테스트 코드
 // 기존 환경변수와 새 환경변수를 병합할 때
 // locked가 true인 항목이 기존에 있으면 오버라이드 하지 않고 보존하는지 검증
 func TestOverride(t *testing.T) {
 	tests := []struct {
 		name     string
-		old      EnvxMap
-		new      EnvxMap
-		expected EnvxMap
+		old      EnvMap
+		new      EnvMap
+		expected EnvMap
 	}{
 		{
 			name:     "empty maps",
-			old:      EnvxMap{},
-			new:      EnvxMap{},
-			expected: EnvxMap{},
+			old:      EnvMap{},
+			new:      EnvMap{},
+			expected: EnvMap{},
 		},
 		{
 			name: "add new keys",
-			old: EnvxMap{
+			old: EnvMap{
 				"KEY1": {Value: "value1", Locked: false},
 			},
-			new: EnvxMap{
+			new: EnvMap{
 				"KEY2": {Value: "value2", Locked: false},
 			},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Value: "value1", Locked: false},
 				"KEY2": {Value: "value2", Locked: false},
 			},
 		},
 		{
 			name: "override unlocked key",
-			old: EnvxMap{
+			old: EnvMap{
 				"KEY1": {Value: "value1", Locked: false},
 			},
-			new: EnvxMap{
+			new: EnvMap{
 				"KEY1": {Value: "new_value", Locked: false},
 			},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Value: "new_value", Locked: false},
 			},
 		},
 		{
 			name: "preserve locked key",
-			old: EnvxMap{
+			old: EnvMap{
 				"KEY1": {Value: "value1", Locked: true},
 			},
-			new: EnvxMap{
+			new: EnvMap{
 				"KEY1": {Value: "new_value", Locked: false},
 			},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Value: "value1", Locked: true},
 			},
 		},
 		{
 			name: "mixed keys",
-			old: EnvxMap{
+			old: EnvMap{
 				"KEY1": {Value: "value1", Locked: true},
 				"KEY2": {Value: "value2", Locked: false},
 			},
-			new: EnvxMap{
+			new: EnvMap{
 				"KEY2": {Value: "new_value2", Locked: false},
 				"KEY3": {Value: "value3", Locked: false},
 			},
-			expected: EnvxMap{
+			expected: EnvMap{
 				"KEY1": {Value: "value1", Locked: true},
 				"KEY2": {Value: "new_value2", Locked: false},
 				"KEY3": {Value: "value3", Locked: false},
@@ -164,7 +164,7 @@ func TestOverride(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Override(tt.old, tt.new)
+			result := override(tt.old, tt.new)
 			if !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("Override() = %v, expected %v", result, tt.expected)
 			}
@@ -245,9 +245,9 @@ func TestDiffEnvs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			beforeMap := parseEnvLines(tt.before)
-			afterMap := parseEnvLines(tt.after)
-			result := diffEnvxMaps(beforeMap, afterMap)
+			beforeMap := NewEnvMapFromEnviron(tt.before)
+			afterMap := NewEnvMapFromEnviron(tt.after)
+			result := DiffEnvMap(beforeMap, afterMap)
 			print("1111", result)
 			if len(result) == 0 && len(tt.expected) == 0 {
 				// Both slices are empty, test passes
@@ -317,7 +317,7 @@ func TestParsingPlan(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parsingPlan(tt.input)
+			result, err := OverridePlan(tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parsingPlan() error = %v, wantErr = %v", err, tt.wantErr)
 				return

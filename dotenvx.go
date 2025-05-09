@@ -1,4 +1,4 @@
-package main
+package godotenvx
 
 import (
 	"errors"
@@ -7,19 +7,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/alecthomas/kingpin/v2"
-	"github.com/joho/godotenv"
 )
 
-type EnvxItem struct {
+type EnvItem struct {
 	Key    string
 	Value  string
 	Locked bool
 }
-type EnvxMap map[string]*EnvxItem
+type EnvMap map[string]*EnvItem
+type Environ []string
+type EnvDiffItem [3]string
+type EnvDiff []EnvDiffItem
 
-func NewEnvxItemFromLine(line string, locked bool) (*EnvxItem, error) {
+func newEnvItemFromLine(line string, locked bool) (*EnvItem, error) {
 	parts := strings.SplitN(line, "=", 2)
 	if len(parts) == 2 {
 		k := strings.TrimSpace(parts[0])
@@ -27,7 +27,7 @@ func NewEnvxItemFromLine(line string, locked bool) (*EnvxItem, error) {
 		if len(k) == 0 {
 			return nil, errors.New("invalid key")
 		}
-		return &EnvxItem{
+		return &EnvItem{
 			Key:    k,
 			Value:  v,
 			Locked: locked,
@@ -36,12 +36,12 @@ func NewEnvxItemFromLine(line string, locked bool) (*EnvxItem, error) {
 	return nil, errors.New("invalid line")
 }
 
-func IsFullComment(line string) bool {
+func isFullComment(line string) bool {
 	line = strings.TrimSpace(line)
 	return strings.HasPrefix(line, "#")
 }
 
-func parsingPlan(envFilePath string) ([]string, error) {
+func OverridePlan(envFilePath string) ([]string, error) {
 	// pkg1.pkg2.pkg3.env 와 같은 파일 형식이면, 상위패키지부터 나열
 	// 아니면 그 파일만 나열
 	if envFilePath == "" {
@@ -70,26 +70,26 @@ func parsingPlan(envFilePath string) ([]string, error) {
 	return []string{envFilePath}, nil
 }
 
-func copyEnvLines() []string {
+func copyEnviron() Environ {
 	environ := os.Environ()
-	result := make([]string, len(environ))
+	result := make(Environ, len(environ))
 	copy(result, environ)
 	return result
 }
 
 // 풀라인 주석으로 # LOCK 바로 다음 ITEM은 locked=true가 된다.
-func parseEnvLines(envLines []string) EnvxMap {
-	result := make(EnvxMap)
+func NewEnvMapFromEnviron(environ Environ) EnvMap {
+	result := make(EnvMap)
 
 	locked := false
-	for _, envLine := range envLines {
-		if IsFullComment(envLine) {
+	for _, envLine := range environ {
+		if isFullComment(envLine) {
 			if strings.HasPrefix(envLine, "# LOCK") {
 				locked = true
 			}
 			continue
 		}
-		envxItem, err := NewEnvxItemFromLine(envLine, locked)
+		envxItem, err := newEnvItemFromLine(envLine, locked)
 		if err != nil {
 			continue
 		}
@@ -99,8 +99,8 @@ func parseEnvLines(envLines []string) EnvxMap {
 	return result
 }
 
-func diffEnvxMaps(beforeMap, afterMap EnvxMap) [][3]string {
-	var result [][3]string
+func (beforeMap EnvMap) GetDiff(afterMap EnvMap) EnvDiff {
+	var result EnvDiff
 	seen := make(map[string]bool)
 
 	// left direction
@@ -111,7 +111,7 @@ func diffEnvxMaps(beforeMap, afterMap EnvxMap) [][3]string {
 		}
 
 		if beforeValue != value.Value {
-			diff := [3]string{key, beforeValue, value.Value}
+			diff := EnvDiffItem{key, beforeValue, value.Value}
 			seenKey := strings.Join([]string{diff[0], diff[1], diff[2]}, ":")
 			if seen[seenKey] {
 				continue
@@ -127,7 +127,7 @@ func diffEnvxMaps(beforeMap, afterMap EnvxMap) [][3]string {
 			afterValue = afterMap[key].Value
 		}
 		if afterValue != value.Value {
-			diff := [3]string{key, value.Value, afterValue}
+			diff := EnvDiffItem{key, value.Value, afterValue}
 			seenKey := strings.Join([]string{diff[0], diff[1], diff[2]}, ":")
 			if seen[seenKey] {
 				continue
@@ -145,19 +145,19 @@ func diffEnvxMaps(beforeMap, afterMap EnvxMap) [][3]string {
 	return result
 }
 
-func LoadEnv(envFilePath string) (EnvxMap, error) {
+func NewEnvMapFromFile(envFilePath string) (EnvMap, error) {
 	content, err := os.ReadFile(envFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading file: %v", err)
 	}
 
 	lines := strings.Split(string(content), "\n")
-	return parseEnvLines(lines), nil
+	return NewEnvMapFromEnviron(lines), nil
 }
 
 // locked 인 항목은 오버라이드를 하지 않는다.
-func Override(old EnvxMap, new EnvxMap) EnvxMap {
-	result := make(EnvxMap)
+func (old EnvMap) override(new EnvMap) EnvMap {
+	result := make(EnvMap)
 	for key, value := range old {
 		result[key] = value
 	}
@@ -169,8 +169,8 @@ func Override(old EnvxMap, new EnvxMap) EnvxMap {
 	return result
 }
 
-func ApplyEnv(envxItemMap EnvxMap) error {
-	for key, value := range envxItemMap {
+func (envMap EnvMap) ApplyEnviron() error {
+	for key, value := range envMap {
 		if len(key) == 0 {
 			continue
 		}
@@ -182,48 +182,35 @@ func ApplyEnv(envxItemMap EnvxMap) error {
 	return nil
 }
 
-func main() {
-	app := kingpin.New("dotenvx", "A command-line tool for loading environment variables from .env files")
+func (envMap EnvMap) GetEnviron() Environ {
+	result := make(Environ, 0, len(envMap))
+	for key, value := range envMap {
+		result = append(result, fmt.Sprintf("%s=%s", key, value.Value))
+	}
+	return result
+}
 
-	envFile := app.Flag("file", "Path to the .env file").Default(".env").Short('f').String()
-	override := app.Flag("override", "Override existing environment variables").Short('o').Bool()
-	dryRun := app.Flag("dry-run", "Print the environment variables that will be loaded").Short('d').Bool()
-	verbose := app.Flag("verbose", "Print verbose output").Short('v').Bool()
-
-	kingpin.MustParse(app.Parse(os.Args[1:]))
-
-	err := godotenv.Load(*envFile)
-	if err == nil {
-		if *override {
-			parts, err := parsingPlan(*envFile)
-			for _, part := range parts {
-				beforeEnvs := copyEnvLines()
-				beforeEnvsMap := parseEnvLines(beforeEnvs)
-				err = godotenv.Overload(part)
-				if err != nil {
-					fmt.Printf("Error overriding environment variables: %v\n", err)
-					os.Exit(1)
-				}
-				afterEnvs := copyEnvLines()
-				afterEnvsMap := parseEnvLines(afterEnvs)
-				diff := diffEnvxMaps(beforeEnvsMap, afterEnvsMap)
-				if *verbose {
-					fmt.Printf("Overloaded %s\n", part)
-					for _, env := range diff {
-						fmt.Printf("  %s\n", env)
-					}
+func LoadEnvFile(envFilePath string, override bool, verbose bool) (EnvMap, error) {
+	overridePlan, err := OverridePlan(envFilePath)
+	if err != nil {
+		return nil, err
+	}
+	envMap := NewEnvMapFromEnviron(copyEnviron())
+	if override {
+		for _, envFilePath2 := range overridePlan {
+			_, _ = fmt.Fprintf(os.Stderr, "---> Loading %s\n", envFilePath2)
+			newEnvMap, err := NewEnvMapFromFile(envFilePath2)
+			if err != nil {
+				return nil, err
+			}
+			if verbose {
+				diff := envMap.GetDiff(newEnvMap)
+				for _, item := range diff {
+					_, _ = fmt.Fprintf(os.Stderr, "     Overrided %s: %s -> %s\n", item[0], item[1], item[2])
 				}
 			}
-		}
-
-		fmt.Printf("Successfully loaded environment variables from %s\n", *envFile)
-	} else {
-		fmt.Printf("Error loading %s file: %v\n", *envFile, err)
-		//os.Exit(1)
-	}
-	if *dryRun {
-		for _, env := range os.Environ() {
-			fmt.Println(env)
+			envMap = envMap.override(newEnvMap)
 		}
 	}
+	return envMap, nil
 }
